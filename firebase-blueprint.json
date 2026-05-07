@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique identifier for the user" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "User profile picture URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "A Notion-like document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the document" },
+        "title": { "type": "string", "description": "Title of the document" },
+        "content": { "type": "string", "description": "Rich text content (JSON string or HTML)" },
+        "icon": { "type": "string", "description": "Emoji or icon identifier" },
+        "coverImage": { "type": "string", "description": "URL of the cover image" },
+        "parentId": { "type": "string", "description": "ID of the parent document for nesting" },
+        "ownerId": { "type": "string", "description": "UID of the document owner" },
+        "isArchived": { "type": "boolean", "description": "Whether the document is in the trash" },
+        "isPublished": { "type": "boolean", "description": "Whether the document is publicly accessible" },
+        "collaborators": {
+          "type": "object",
+          "description": "Map of user IDs to their roles (owner, editor, viewer)"
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" },
+        "lastEditedBy": { "type": "string", "description": "UID of the last user who edited the document" }
+      },
+      "required": ["title", "ownerId", "createdAt", "updatedAt"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "Log of user actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "documentId": { "type": "string" },
+        "action": { "type": "string", "enum": ["create", "edit", "delete", "archive", "restore", "share"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "details": { "type": "string" }
+      },
+      "required": ["userId", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile data"
+    },
+    "/documents/{docId}": {
+      "schema": "Document",
+      "description": "Core document data"
+    },
+    "/documents/{docId}/versions/{versionId}": {
+      "schema": "Document",
+      "description": "Historical versions of the document"
+    },
+    "/activities/{activityId}": {
+      "schema": "Activity",
+      "description": "Activity logs"
+    }
+  }
+}

@@ -1,0 +1,137 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (auth.uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: documents
+    // Document ID: docId (auto-generated)
+    // Fields:
+    //   - title: string (required)
+    //   - content: string (optional)
+    //   - icon: string (optional)
+    //   - coverImage: string (optional)
+    //   - parentId: string (optional)
+    //   - ownerId: string (required, immutable)
+    //   - isArchived: bool (required)
+    //   - isPublished: bool (required)
+    //   - collaborators: map (optional, { userId: role })
+    //   - createdAt: timestamp (required, immutable)
+    //   - updatedAt: timestamp (required)
+    //   - lastEditedBy: string (required)
+    //
+    // Collection: activities
+    // Document ID: activityId (auto-generated)
+    // Fields:
+    //   - userId: string (required)
+    //   - documentId: string (optional)
+    //   - action: string (required, enum: create, edit, delete, archive, restore, share)
+    //   - timestamp: timestamp (required)
+    //   - details: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getDocData(docId) {
+      return get(/databases/$(database)/documents/documents/$(docId)).data;
+    }
+
+    function getRole(docData) {
+      let uid = request.auth.uid;
+      return docData.ownerId == uid ? 'owner' : 
+             (docData.collaborators != null && uid in docData.collaborators ? docData.collaborators[uid] : null);
+    }
+
+    function hasAccess(docData, minRole) {
+      let role = getRole(docData);
+      return role == 'owner' || 
+             (minRole == 'editor' && role == 'editor') ||
+             (minRole == 'viewer' && (role == 'editor' || role == 'viewer'));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidDocument(data) {
+      return data.keys().hasAll(['title', 'ownerId', 'isArchived', 'isPublished', 'createdAt', 'updatedAt', 'lastEditedBy']) &&
+             data.title is string && data.title.size() <= 1000 &&
+             data.ownerId is string &&
+             data.isArchived is bool &&
+             data.isPublished is bool &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp &&
+             data.lastEditedBy is string;
+    }
+
+    function isValidActivity(data) {
+      return data.keys().hasAll(['userId', 'action', 'timestamp']) &&
+             data.userId == request.auth.uid &&
+             data.action in ['create', 'edit', 'delete', 'archive', 'restore', 'share'] &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+    }
+
+    match /documents/{docId} {
+      allow read: if isAuthenticated() && (hasAccess(resource.data, 'viewer') || resource.data.isPublished == true);
+      allow create: if isAuthenticated() && isValidDocument(request.resource.data) && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isAuthenticated() && hasAccess(resource.data, 'editor') && isValidDocument(request.resource.data) &&
+                    request.resource.data.ownerId == resource.data.ownerId &&
+                    request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAuthenticated() && getRole(resource.data) == 'owner';
+
+      match /versions/{versionId} {
+        allow read: if isAuthenticated() && hasAccess(getDocData(docId), 'viewer');
+        allow create: if isAuthenticated() && hasAccess(getDocData(docId), 'editor');
+      }
+    }
+
+    match /activities/{activityId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || 
+        (resource.data.documentId != null && hasAccess(getDocData(resource.data.documentId), 'viewer'))
+      );
+      allow create: if isAuthenticated() && isValidActivity(request.resource.data);
+    }
+  }
+}
